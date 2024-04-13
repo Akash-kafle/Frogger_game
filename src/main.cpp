@@ -2,16 +2,22 @@
 and may not be redistributed without written permission.*/
 
 //Using SDL and standard IO
-#include "Game.h"
+//#include "Game.h"
+#include "all.h"
 
 // Main function
 int main(int argc, char* args[]) {
-    // Create the game instance
-    Game game("Frogger", SCREEN_WIDTH, SCREEN_HEIGHT);
+    Game game;
+
+    // Initialize the game
+    bool checker = game.initialize("Frogger", SCREEN_WIDTH, SCREEN_HEIGHT);
+    if (!checker) {
+        std::cerr << "Failed to initialize the game." << std::endl;
+        return -1;
+    }
 
     // Run the game
     game.run();
 
-    // Cleanup will be called automatically when the game instance is destroyed
     return 0;
 }
