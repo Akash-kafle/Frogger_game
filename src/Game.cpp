@@ -70,7 +70,7 @@ void Game::eventLoop(Player player,SDL_Renderer* gRenderer) {
 // Run the game
 void Game::run() {
     fillSurface(SDL_MapRGB(screenSurface->format, 0xFF, 0xFF, 0xFF)); // Fill the surface white
-    eventLoop(); // Start the event loop
+    eventLoop(player,gRenderer); // Start the event loop
 }
 
 // Clean up the game resources

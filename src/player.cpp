@@ -37,14 +37,6 @@ void Player::Update(SDL_KeyboardEvent event) {
     }
 }
 
-std::string Player::Get_ImageFilename() {   // Getter for the image filename
-    return this->imageFilename; 
-} 
-
-void Player::Set_ImageFilename(std::string newImageFilename) {  // Setter for the image filename
-    this->imageFilename = newImageFilename; 
-} 
-
 SDL_Texture* Player::Get_Image(SDL_Renderer* gRenderer) {
     SDL_Surface* loadedSurface = SDL_LoadBMP(imageFilename.c_str());
     SDL_Texture* image = SDL_CreateTextureFromSurface(gRenderer, loadedSurface);
