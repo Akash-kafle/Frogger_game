@@ -1,30 +1,57 @@
 #include "all.h"
-void rendervehicleLanes(SDL_Renderer *renderer, const std::vector<Vehicle> &vehicleLanes, const char *errorMessage);
-SDL_Texture *Game::carTexture = nullptr;
-SDL_Texture* LogsWater::logTexture = nullptr;
+bool loadTexture(SDL_Renderer *renderer, const std::string &filePath, SDL_Texture *&texture);
+// Forward declaration of classes
+class LogsWater;
+class Vehicle;
+class Game;
+int lives = 100000;
+// Global texture pointers
+SDL_Texture *carTexture = nullptr;
+SDL_Texture *logTexture = nullptr;
 
-//**************************************************************************************************************************             logs and water
+SDL_Texture *FAIL_TEXTURE = nullptr;
 
-// Constructor for LogsWater
+// LogsWater methods implementation
+
 LogsWater::LogsWater(int startY, SDL_Texture *logTexture, SDL_Texture *waterTexture, int speed, int numLogs)
-    : yPosition(startY),  waterTexture(waterTexture), logSpeed(speed), numLogs(numLogs)
+    : yPosition(startY), logSpeed(speed), numLogs(numLogs), logTexture(logTexture)
 {
     initializeLogs();
 }
 
-// Method to initialize logs within the water lanes
 void LogsWater::initializeLogs()
 {
     int startX = SCREEN_WIDTH;
     for (int i = 0; i < numLogs; i++)
     {
-        // Initialize Vehicle for each log and add it to the logs vector
-        logs.push_back(Vehicle(startX, yPosition, logSpeed, logTexture));
-        startX -= PLAYER_WIDTH;
+        // Determine the size of the log
+        int logWidth;
+        if (0 ==  rand()%3)
+        {
+            logWidth = PLAYER_WIDTH;
+        }
+        else if (1 == rand() % 3)
+        {
+            logWidth = MEDIUM_LOG_LENGTH;
+        }
+        else
+        {
+            logWidth = BIG_LOG_LENGTH;
+        }
+
+        // Create a vehicle object representing the log with the determined width
+        Vehicle log(startX, yPosition, logSpeed, logTexture);
+        log.setWidth(logWidth);
+
+        // Add the log to the logs vector
+        logs.push_back(log);
+
+        // Move the starting x position for the next log
+        startX -= logWidth;
     }
 }
 
-// Update method
+
 void LogsWater::update()
 {
     for (Vehicle &log : logs)
@@ -33,77 +60,75 @@ void LogsWater::update()
     }
 }
 
-// Render method for LogsWater
 void LogsWater::render(SDL_Renderer *renderer) const
 {
-
-    std::cout << "Rendering water at position: " << yPosition << std::endl;
-    // Render water first
-    SDL_Rect waterRect = {100, yPosition, SCREEN_WIDTH, PLAYER_HEIGHT};
-    SDL_RenderCopy(renderer, waterTexture, nullptr, &waterRect);
-
-    // Then render logs on top of the water
     for (const Vehicle &log : logs)
     {
-        std::cout << "Rendering log at position: " << log.getX() << ", " << log.getY() << std::endl;
-        SDL_Rect logRect = {log.getX(), log.getY(), PLAYER_WIDTH, PLAYER_HEIGHT};
-        SDL_RenderCopy(renderer, logTexture, nullptr, &logRect);
+        SDL_Rect logRect = {log.getX(), log.getY(), log.getRect().w, log.getRect().h};
+        if (logTexture)
+        {
+            SDL_RenderCopy(renderer, logTexture, nullptr, &logRect);
+        }
+        else
+        {
+            return;
+        }
     }
 }
 
-// Getter method
 int LogsWater::getY() const
 {
     return yPosition;
 }
 
-//***********************************************************************************************************************        vechiles
+// Vehicle methods implementation
 
-// Constructor for Vehicle
 Vehicle::Vehicle(int startX, int startY, int speed, SDL_Texture *vehicleTexture)
-    : initialX(startX), initialY(startY), speed(speed), cartexture(vehicleTexture)
+    : initialX(startX), initialY(startY), speed(speed)
 {
+    if (!vehicleTexture)
+    {
+        this->vehicleTexture = FAIL_TEXTURE;
+        return;
+    }
+    this->vehicleTexture = vehicleTexture;
     vehicleRect = {startX, startY, PLAYER_WIDTH, PLAYER_HEIGHT};
 }
 
-// Update method for Vehicle
+void Vehicle::setWidth(int newWidth)
+{
+    vehicleRect.w = newWidth;
+}
+
 void Vehicle::update()
 {
-    vehicleRect.x -= speed; // Move the vehicle
-
-    // Check if the vehicle is out of bounds and reset if necessary
+    vehicleRect.x -= speed;
     if (vehicleRect.x + vehicleRect.w < 0)
     {
         reset();
     }
 }
 
-// Reset method for Vehicle
 void Vehicle::reset()
 {
     vehicleRect.x = initialX;
 }
 
-// Render method for Vehicle
 void Vehicle::render(SDL_Renderer *renderer) const
 {
     if (renderer == nullptr)
     {
-        std::cerr << "Renderer is null in Vehicle::render." << std::endl;
         return;
     }
 
-    if (cartexture == nullptr)
+    if (vehicleTexture == nullptr)
     {
-        std::cerr << "Texture is null in Vehicle::render." << std::endl;
         return;
     }
 
-    // Render the vehicle texture onto the screen
-    SDL_RenderCopy(renderer, cartexture, nullptr, &vehicleRect);
+    SDL_RenderCopy(renderer, vehicleTexture, nullptr, &vehicleRect);
 }
 
-// Getter methods
 SDL_Rect Vehicle::getRect() const
 {
     return vehicleRect;
@@ -124,32 +149,28 @@ int Vehicle::getSpeed() const
     return speed;
 }
 
-// Setter method
 void Vehicle::setSpeed(int newSpeed)
 {
     speed = newSpeed;
 }
 
-//***********************************************************************************************************************          Main game
+// Game methods implementation
 
-// Constructor
-Game::Game() : window(nullptr), renderer(nullptr), frogTexture(nullptr),
-               frogX(SCREEN_WIDTH / 2 - PLAYER_WIDTH / 2), frogY(SCREEN_HEIGHT - PLAYER_HEIGHT),
-               shortLogTexture(nullptr), mediumLogTexture(nullptr), bigLogTexture(nullptr)
+Game::Game()
+    : window(nullptr), renderer(nullptr), backgroundTexture(nullptr), frogTexture(nullptr),
+      frogX(SCREEN_WIDTH / 2 - PLAYER_WIDTH / 2), frogY(SCREEN_HEIGHT - PLAYER_HEIGHT),
+      shortLogTexture(nullptr), mediumLogTexture(nullptr), bigLogTexture(nullptr), gameOver(false)
 {
-    srand((unsigned int)time(nullptr));
-
+    srand(static_cast<unsigned int>(time(nullptr)));
     initializeLogWaterLanes();
     initializeVehicleLanes();
 }
 
-// Destructor
 Game::~Game()
 {
     cleanup();
 }
 
-// Initialization method
 bool Game::initialize(const char *title, int width, int height)
 {
     if (SDL_Init(SDL_INIT_VIDEO) < 0)
@@ -171,27 +192,48 @@ bool Game::initialize(const char *title, int width, int height)
         std::cerr << "Renderer could not be created! SDL Error: " << SDL_GetError() << std::endl;
         return false;
     }
-    bool checker = loadResources();
-    if (!checker)
+
+    return loadResources();
+}
+
+bool Game::loadResources()
+{
+    bool result = true;
+
+    result &= loadTexture(renderer, "resources/background1.png", backgroundTexture);
+    result &= loadTexture(renderer, "resources/frog1.png", frogTexture);
+    result &= loadTexture(renderer, "resources/car.png", carTexture);
+    result &= loadTexture(renderer, "resources/log.png", shortLogTexture);
+    result &= loadTexture(renderer, "resources/log.png", mediumLogTexture);
+    result &= loadTexture(renderer, "resources/log.png", bigLogTexture);
+    result &= loadTexture(renderer, "resources/frog.png", FAIL_TEXTURE);
+
+    if (!result)
     {
+        std::cerr << "Failed to load resources!" << std::endl;
         return false;
     }
 
-    return true;
+    return result;
 }
 
 bool loadTexture(SDL_Renderer *renderer, const std::string &filePath, SDL_Texture *&texture)
 {
-    SDL_Surface *loadedSurface = SDL_LoadBMP(filePath.c_str());
+    // Load the image as a surface using SDL_image
+    SDL_Surface *loadedSurface = IMG_Load(filePath.c_str());
     if (!loadedSurface)
     {
-        std::cerr << "Unable to load image from path " << filePath << "! SDL Error: " << SDL_GetError() << std::endl;
+        std::cerr << "Unable to load image from path " << filePath << "! SDL_image Error: " << IMG_GetError() << std::endl;
         return false;
     }
 
+    // Create a texture from the loaded surface
     texture = SDL_CreateTextureFromSurface(renderer, loadedSurface);
+
+    // Free the loaded surface as it is no longer needed
     SDL_FreeSurface(loadedSurface);
 
+    // Check for errors in creating the texture
     if (!texture)
     {
         std::cerr << "Unable to create texture from surface! SDL Error: " << SDL_GetError() << std::endl;
@@ -201,258 +243,225 @@ bool loadTexture(SDL_Renderer *renderer, const std::string &filePath, SDL_Textur
     return true;
 }
 
-bool Game::loadResources()
-{
-    bool result = true;
+void Game::initializeLogWaterLanes() {
+    // Calculate the lane height for the logs water lanes
+    int laneHeight = (WaterHeight - WinHeight) / 4;
 
-    // Load background texture
-    result &= loadTexture(renderer, "resources/background_.bmp", backgroundTexture);
+    // Calculate the starting y-coordinate of the first logs water lane
+    int startY = WinHeight + PLAYER_HEIGHT;
 
-    // Load frog texture
-    result &= loadTexture(renderer, "resources/frog.bmp", frogTexture);
+    for (int lane = 0; lane < 4; lane++) {
+        int laneY = startY + lane * (laneHeight * 2);
+        SDL_Texture* logTexture = nullptr;
 
-    // Load car texture
-    result &= loadTexture(renderer, "resources/bus.bmp", carTexture);
-
-    // Load short log texture
-    result &= loadTexture(renderer, "resources/short_Log.bmp", shortLogTexture);
-
-    // Load medium log texture
-    result &= loadTexture(renderer, "resources/medium_log.bmp", mediumLogTexture);
-
-    // Load big log texture
-    result &= loadTexture(renderer, "resources/big_log.bmp", bigLogTexture);
-
-    return result;
-}
-
-// Initialization function for Logs and Water Lanes in Game
-void Game::initializeLogWaterLanes()
-{
-    for (int lane = 0; lane < 3; lane++)
-    {
-        // Calculate y-position for the current lane
-        int laneY = (lane + 2) * PLAYER_HEIGHT;
-
-        // Choose the appropriate log texture for each lane
-        SDL_Texture *logTexture = nullptr;
-        if (lane == 0)
-        {
+        // Determine the log texture based on the random lane index
+        if (lane == rand() % 3) {
             logTexture = shortLogTexture;
         }
-        else if (lane == 1)
-        {
+        else if (lane == rand() % 3) {
             logTexture = mediumLogTexture;
         }
-        else if (lane == 2)
-        {
+        else {
             logTexture = bigLogTexture;
         }
-        // Then add it to the logsWaterLanes vector
+
+        // Create and add a LogsWater object to the logs water lanes vector
         logsWaterLanes.push_back(LogsWater(laneY, logTexture, nullptr, CAR_SPEED + lane, 3));
     }
 }
 
-// Main game loop
-void Game::run()
+void Game::initializeVehicleLanes()
 {
-    bool running = true;
-    Uint32 frameStart;
-    int frameTime;
+    // Define the starting y-coordinate of the first vehicle lane
+    // Calculate the number of lanes to adjust the starting position
+    int numLanes = NUM_LANES;
+    vehicleLanes.resize(numLanes);
 
-    while (running)
+    // Calculate the starting y-coordinate for the first vehicle lane
+    // Starting below the logs water lanes and allowing for a safe zone
+    int startY = SCREEN_HEIGHT - PLAYER_HEIGHT -(((float)numLanes)+0.5 )* PLAYER_HEIGHT;
+    for (int laneIndex = 0; laneIndex < numLanes; ++laneIndex)
     {
-        frameStart = SDL_GetTicks();
+        // Calculate the y-coordinate for the current vehicle lane
+        // Each lane is positioned one PLAYER_HEIGHT down from the previous lane
+        int laneY = startY + laneIndex * PLAYER_HEIGHT;
 
-        handleInput(running);
-        update();
-        render();
-        if (gameOver)
+        // Add vehicles to the current lane
+        for (int i = 0; i < NUM_VEHICLES_PER_LANE; ++i)
         {
-            running = false;
-        }
-        frameTime = SDL_GetTicks() - frameStart;
-        if (frameTime < 1000 / FPS)
-        {
-            SDL_Delay((1000 / FPS) - frameTime);
+            // Calculate the starting x-coordinate for the vehicle
+            int startX = SCREEN_WIDTH + i * (PLAYER_WIDTH * 3);
+
+            // Create a vehicle with the starting position and texture
+            vehicleLanes[laneIndex].emplace_back(Vehicle(startX, laneY, CAR_SPEED + laneIndex, carTexture));
         }
     }
 }
 
-// Handle player input
+
+
+void Game::run()
+{
+    initializeVehicleLanes();
+    initializeLogWaterLanes();
+    bool running = true;
+    while (!gameOver)
+    {
+        handleInput(running);
+        update();
+        render();
+        SDL_Delay(1000 / FPS);
+    }
+}
+
 void Game::handleInput(bool &running)
 {
-    SDL_Event e;
-
-    while (SDL_PollEvent(&e))
+    SDL_Event event;
+    while (SDL_PollEvent(&event) != 0)
     {
-        if (e.type == SDL_QUIT)
+        if (event.type == SDL_QUIT)
         {
             running = false;
         }
-        else if (e.type == SDL_KEYDOWN)
+        else if (event.type == SDL_KEYDOWN)
         {
-            switch (e.key.keysym.sym)
+            switch (event.key.keysym.sym)
             {
             case SDLK_UP:
-                if (frogY > 0)
+                // Move the frog up if it is not at the top of the screen
+                if (frogY - PLAYER_HEIGHT >= 0)
                 {
                     frogY -= PLAYER_HEIGHT;
                 }
                 break;
             case SDLK_DOWN:
+                // Move the frog down if it is not at the bottom of the screen
                 if (frogY + PLAYER_HEIGHT < SCREEN_HEIGHT)
                 {
                     frogY += PLAYER_HEIGHT;
                 }
                 break;
             case SDLK_LEFT:
-                if (frogX > 0)
+                // Move the frog left if it is not at the left edge of the screen
+                if (frogX - PLAYER_WIDTH >= 0)
                 {
                     frogX -= PLAYER_WIDTH;
                 }
                 break;
             case SDLK_RIGHT:
+                // Move the frog right if it is not at the right edge of the screen
                 if (frogX + PLAYER_WIDTH < SCREEN_WIDTH)
                 {
                     frogX += PLAYER_WIDTH;
                 }
                 break;
             }
-        
+
         }
     }
 }
 
-// Update the game state
-void Game::update()
-{
-    // Update vehicles
-    for (int i = 0; i < NUM_LANES; i++)
-    {
-        for (Vehicle &vehicle : vehicleLanes[i])
-        {
-            vehicle.update();
-        }
+void Game::update() {
+    // Early exit if the game is already over
+    if (gameOver) {
+        return;
     }
 
-    // Update logs and water
-    for (LogsWater &logsWater : logsWaterLanes)
+    // Update logs water lanes
+    for (LogsWater& logsWater : logsWaterLanes) {
+        logsWater.update();
+    }
+
+    // Update vehicle lanes
+    updateVehicleLanes();
+    // Update logs and water lanes
+    for (LogsWater& logsWater : logsWaterLanes)
     {
         logsWater.update();
     }
 
-    // Check for collisions
-    SDL_Rect frogRect = {frogX, frogY, PLAYER_WIDTH, PLAYER_HEIGHT};
+    // Define the frog's rectangle based on its current position and size
+    SDL_Rect frogRect = { frogX, frogY, PLAYER_WIDTH, PLAYER_HEIGHT };
 
     bool isFrogOnLog = false;
-    bool isVehiclePresent = false; // Flag to check if a vehicle is present in the current lane
-    for (int i = 0; i < 3; i++)
+
+    // Check for collisions between the frog and logs in the logs water lanes
+    if (frogY < SCREEN_HEIGHT / 2)
     {
-        // Check for collisions with vehicles
-        isVehiclePresent = false; // Reset the flag for each lane
-        for (const Vehicle& vehicle : vehicleLanes[i])
+        for (LogsWater& logsWater : logsWaterLanes)
         {
-            SDL_Rect vehicleRect = vehicle.getRect();
-            vehicleRect.h = PLAYER_HEIGHT; // Set the height of the vehicle rect to PLAYER_HEIGHT
-
-            if ( (frogY >= vehicleRect.x+PLAYER_WIDTH/3) && (  frogX <= vehicleRect.y ) && checkCollision(frogRect, vehicleRect) && !isFrogOnLog){
-                std::cout << "Game Over! Frog hit a vehicle." << std::endl;
-                // Handle game over condition gracefully
-                gameOver = true;
-                return;
-            }
-            isVehiclePresent = true; // Set the flag if a vehicle is present in the current lane
-        }
-
-        // Check for collisions with logs only if there is no vehicle in the current lane
-        if (!isVehiclePresent)
-        {
-            const LogsWater &logsWater = logsWaterLanes[i];
-            if (frogY >= logsWater.getY() && frogY <= logsWater.getY() + PLAYER_HEIGHT )
+            // Check if the frog's y-position is within the current logs water lane
+            if (frogY >= logsWater.getY() && frogY < logsWater.getY() + PLAYER_HEIGHT)
             {
-                isFrogOnLog = true;
-                for (const Vehicle &log : logsWater.logs)
+                // Iterate through each log in the current lane
+                for (Vehicle& log : logsWater.logs)
                 {
+                    // Check for collision between the frog and the log
                     if (checkCollision(frogRect, log.getRect()))
                     {
-                        frogX += log.getX() - frogRect.x; // Adjust frog's x-position
-                        break;
+                        // The frog is on top of the log
+                        isFrogOnLog = true;
+                        // Update the frog's x-position based on the log's speed
+                        frogX -= log.getSpeed();
+                        break; // Exit the loop as the frog is on a log
                     }
                 }
-            }
-            else
-            {
-                isFrogOnLog = false;
+
+                // If the frog is on a log, exit the outer loop
+                if (isFrogOnLog)
+                {
+                    break;
+                }
             }
         }
-    }
 
-    // Check for collisions with winning and losing spots
-    int waterStartX = (2 * PLAYER_HEIGHT);             // Calculate water start position based on lane index
-    int waterEndX = waterStartX + (5 * PLAYER_HEIGHT); // Calculate water end position based on lane index
-
-    if (!isFrogOnLog && frogY < (SCREEN_HEIGHT / 2) && (frogX < waterStartX || frogX > waterEndX))
-    {
-        std::cout << "Game Over! Frog drowned." << std::endl;
-        gameOver = true;
-        return;
-    }
-
-    if (!isFrogOnLog && frogY < 0 && frogX > waterStartX)
-    {
-        std::cout << "Congratulations! Frog reached the safe spot." << std::endl;
-        // Handle winning condition gracefully
-        gameOver = true;
-        return;
-    }
-}
-
-// Function to render logs and water lanes
-static void renderLogsWaterLanes(SDL_Renderer *renderer, const std::vector<LogsWater> &logsWaterLanes, const char *errorMessage)
-{
-    if (renderer == nullptr)
-    {
-        std::cerr << "Renderer is null in renderLogsWaterLanes." << std::endl;
-        std::cerr << errorMessage << std::endl;
-        return;
-    }
-
-    if (logsWaterLanes.empty())
-    {
-        std::cerr << "Logs and water lanes are empty in renderLogsWaterLanes." << std::endl;
-        std::cerr << errorMessage << std::endl;
-        return;
-    }
-
-    for (const auto &lane : logsWaterLanes)
-    {
-        // Log before rendering each log and water lane
-        std::cout << "Rendering logs and water at position: " << lane.getY() << std::endl;
-
-        // Render the logs and water lane
-        lane.render(renderer);
-    }
-}
-
-// Initialization method for vehicle lanes
-void Game::initializeVehicleLanes()
-{
-    int numLanes = 3; // Adjust as needed
-
-    vehicleLanes.resize(numLanes); // Resize the lanes vector
-
-    // Initialize each lane
-    for (int laneIndex = 0; laneIndex < numLanes; ++laneIndex)
-    {
-        int laneY = SCREEN_HEIGHT - (laneIndex + 1) * PLAYER_HEIGHT;
-        for (int i = 0; i < NUM_VEHICLES_PER_LANE; ++i)
+        // If the frog is not on a log in any water lane, the frog has fallen into the water and drowned
+        if (!isFrogOnLog)
         {
-            int startX = SCREEN_WIDTH + i * PLAYER_WIDTH;
-            vehicleLanes[laneIndex].emplace_back(startX, laneY, CAR_SPEED + laneIndex, carTexture);
+            std::cout << "Game Over! Frog drowned." << std::endl;
+            handleFrogDrowning();
+            return;
         }
     }
+
+    // Check for collisions between the frog and vehicles
+    for (const auto& lane : vehicleLanes)
+    {
+        for (const auto& vehicle : lane)
+        {
+            // Check for collision between the frog and the vehicle
+            if (checkCollision(frogRect, vehicle.getRect()))
+            {
+                // Handle collision between the frog and a vehicle
+                std::cout << "Game Over! Frog hit a vehicle." << std::endl;
+                handleFrogCollisionWithVehicle();
+                return;
+            }
+        }
+    }
+
 }
+
+void Game::handleFrogCollisionWithVehicle() {
+    // Handle frog collision with vehicle
+    frogX = SCREEN_WIDTH / 2 - PLAYER_WIDTH / 2;
+    frogY = SCREEN_HEIGHT - PLAYER_HEIGHT;
+    lives--;
+    if (lives == 0) {
+        gameOver = true;
+    }
+}
+
+void Game::handleFrogDrowning() {
+    // Handle frog drowning
+    frogX = SCREEN_WIDTH / 2 - PLAYER_WIDTH / 2;
+    frogY = SCREEN_HEIGHT - PLAYER_HEIGHT;
+    lives--;
+    if (lives == 0) {
+        gameOver = true;
+    }
+}
+
 
 void Game::updateVehicleLanes()
 {
@@ -461,218 +470,112 @@ void Game::updateVehicleLanes()
         for (auto &vehicle : lane)
         {
             vehicle.update();
-
-            // Reset vehicle position if it goes off-screen
-            if (vehicle.getX() < -vehicle.getWidth())
-            {
-                vehicle.reset();
-            }
         }
     }
 }
 
-void Game::renderVehicleLanes(SDL_Renderer *renderer)
+bool Game::checkCollision(const SDL_Rect &rect1, const SDL_Rect &rect2)
 {
-    for (const auto &lane : vehicleLanes)
-    {
-        for (const auto &vehicle : lane)
-        {
-            SDL_Rect vehicleRect = {vehicle.getX(), vehicle.getY(), vehicle.getWidth(), vehicle.getHeight()};
-
-            // Render vehicle if car texture is valid
-            if (carTexture)
-            {
-                SDL_RenderCopy(renderer, carTexture, nullptr, &vehicleRect);
-            }
-            else
-            {
-                std::cerr << "Car texture is null in renderVehicleLanes." << std::endl;
-            }
-        }
-    }
-}
-
-void Game::renderLogs()
-{
-    // Iterate through each LogsWater lane
-    for (const auto &logsWater : logsWaterLanes)
-    {
-        // Iterate through each log in the current lane
-        for (const auto &log : logsWater.logs)
-        {
-            // Calculate the rectangle for rendering the log
-            SDL_Rect logRect = {log.getX(), log.getY(), log.getWidth(), log.getHeight()};
-
-            // Render the log texture
-            SDL_RenderCopy(renderer, LogsWater::getTexture(), nullptr, &logRect);
-        }
-    }
+    return SDL_HasIntersection(&rect1, &rect2);
 }
 
 void Game::render()
 {
-    // Clear the renderer
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
     SDL_RenderClear(renderer);
 
-    // Render the background texture
-    if (backgroundTexture != nullptr)
-    {
-        SDL_Rect backgroundRect = {0, 0, SCREEN_WIDTH, SCREEN_HEIGHT};
-        SDL_RenderCopy(renderer, backgroundTexture, nullptr, &backgroundRect);
-    }
-    else
-    {
-        std::cerr << "Background texture is null in Game::render." << std::endl;
-    }
+    // Render background texture
+    SDL_Rect backgroundRect = {0, 0, SCREEN_WIDTH, SCREEN_HEIGHT};
+    SDL_RenderCopy(renderer, backgroundTexture, nullptr, &backgroundRect);
 
-    // Render vehicles, logs, and the frog
-    renderLogs(renderer);
-    renderVehicles(renderer);
-    
+    // Render water lanes and logs
+    renderLogsWaterLanes(renderer, logsWaterLanes, "Logs water lanes render error!");
+    std::vector<Vehicle> flattenedVehicles;
+    for (const std::vector<Vehicle> &lane : vehicleLanes)
+    {
+        flattenedVehicles.insert(flattenedVehicles.end(), lane.begin(), lane.end());
+    }
+    // Render vehicle lanes
+    renderVehicleLanes(renderer, flattenedVehicles, "Vehicle lanes render error!");
+
+    // Render frog
     renderFrog(renderer);
 
-    // Present the rendered content
     SDL_RenderPresent(renderer);
 }
 
-void Game::renderLogs(SDL_Renderer *renderer)
+void Game::renderLogsWaterLanes(SDL_Renderer *renderer, const std::vector<LogsWater> &logsWaterLanes, const char *errorMessage)
 {
-    for (const auto &logsWater : logsWaterLanes)
+    for (const LogsWater &logsWater : logsWaterLanes)
     {
-        if (!logsWater.logs.empty())
-        {
-            std::vector<SDL_Rect> logRects;
-            for (const auto &log : logsWater.logs)
-            {
-                SDL_Rect logRect = log.getRect();
-                logRect.y = SCREEN_HEIGHT - PLAYER_HEIGHT * 3; // Set the y-coordinate to the bottom of the blue area
-                logRects.emplace_back(logRect);
-            }
-
-            SDL_RenderCopy(renderer, logsWater.getTexture(), nullptr, logRects.data());
-        }
+        logsWater.render(renderer);
     }
 }
 
-void Game::renderVehicles(SDL_Renderer *renderer)
+void Game::renderVehicleLanes(SDL_Renderer *renderer, const std::vector<Vehicle> &vehicleLanes, const char *errorMessage)
 {
-    int lane = 0;
-    for (const auto &vehicleLane : vehicleLanes)
+
+    for (const auto &lane : vehicleLanes)
     {
-        if (!vehicleLane.empty())
-        {
-            std::vector<SDL_Rect> vehicleRects;
-            for (const auto &vehicle : vehicleLane)
-            {
-                SDL_Rect vehicleRect = vehicle.getRect();
-                vehicleRect.y = SCREEN_HEIGHT - PLAYER_HEIGHT * (lane + 2) - 10; // Set the y-coordinate based on the current lane
-                vehicleRects.emplace_back(vehicleRect);
-            }
-            SDL_RenderCopy(renderer, carTexture, nullptr, vehicleRects.data());
-        }
-        lane++;
+        lane.render(renderer);
     }
 }
 
 void Game::renderFrog(SDL_Renderer *renderer)
 {
-    if (frogTexture)
-    {
-        SDL_Rect frogRect = {frogX, frogY, PLAYER_WIDTH, PLAYER_HEIGHT};
-        SDL_RenderCopy(renderer, frogTexture, nullptr, &frogRect);
-    }
-    else
-    {
-        std::cerr << "Frog texture is null in rendering frog." << std::endl;
-    }
+    SDL_Rect frogRect = {frogX, frogY, PLAYER_WIDTH, PLAYER_HEIGHT};
+    SDL_RenderCopy(renderer, frogTexture, nullptr, &frogRect);
 }
-
-void rendervehicleLanes(SDL_Renderer *renderer, const std::vector<Vehicle> &vehicleLanes, const char *errorMessage)
-{
-    // Check for null renderer
-    if (renderer == nullptr)
-    {
-        std::cerr << "Renderer is null in renderVehicleLanes." << std::endl;
-        std::cerr << errorMessage << std::endl;
-        return;
-    }
-
-    // Check if vehicle lanes are empty
-    if (vehicleLanes.empty())
-    {
-        std::cerr << "Vehicle lanes are empty in renderVehicleLanes." << std::endl;
-        std::cerr << errorMessage << std::endl;
-        return;
-    }
-
-    // Loop through each vehicle in the vehicle lanes
-    for (const auto &vehicle : vehicleLanes)
-    {
-        // Log the vehicle position
-        std::cout << "Rendering vehicle at position: (" << vehicle.getX() << ", " << vehicle.getY() << ")" << std::endl;
-
-        // Get the vehicle's SDL_Rect (position and size)
-        SDL_Rect vehicleRect = {vehicle.getX(), vehicle.getY(), vehicle.getWidth(), vehicle.getHeight()};
-
-        // Render the vehicle texture if it is not null
-        if (Game::carTexture != nullptr)
-        {
-            SDL_RenderCopy(renderer, Game::carTexture, nullptr, &vehicleRect);
-        }
-        else
-        {
-            std::cerr << "Vehicle texture is null in renderVehicleLanes." << std::endl;
-            std::cerr << errorMessage << std::endl;
-        }
-    }
-}
-
 
 void Game::cleanup()
 {
-    // Destroy log textures
-    for (const auto &logsWater : logsWaterLanes)
-    {
-        if (logsWater.getTexture())
-        {
-            SDL_DestroyTexture(logsWater.getTexture());
-        }
-    }
-
-    // Destroy other textures
-    if (frogTexture)
-    {
-        SDL_DestroyTexture(frogTexture);
-        frogTexture = nullptr;
-    }
-    if (carTexture)
-    {
-        SDL_DestroyTexture(carTexture);
-        carTexture = nullptr;
-    }
-    if (waterTexture)
-    {
-        SDL_DestroyTexture(waterTexture);
-        waterTexture = nullptr;
-    }
-
-    // Destroy renderer and window
-    if (renderer)
-    {
-        SDL_DestroyRenderer(renderer);
-        renderer = nullptr;
-    }
     if (window)
     {
         SDL_DestroyWindow(window);
         window = nullptr;
     }
 
-    SDL_Quit();
-}
+    if (renderer)
+    {
+        SDL_DestroyRenderer(renderer);
+        renderer = nullptr;
+    }
 
-// Collision detection function
-bool Game::checkCollision(const SDL_Rect &rect1, const SDL_Rect &rect2)
-{
-    return SDL_HasIntersection(&rect1, &rect2);
+    if (backgroundTexture)
+    {
+        SDL_DestroyTexture(backgroundTexture);
+        backgroundTexture = nullptr;
+    }
+
+    if (frogTexture)
+    {
+        SDL_DestroyTexture(frogTexture);
+        frogTexture = nullptr;
+    }
+
+    if (carTexture)
+    {
+        SDL_DestroyTexture(carTexture);
+        carTexture = nullptr;
+    }
+
+    if (shortLogTexture)
+    {
+        SDL_DestroyTexture(shortLogTexture);
+        shortLogTexture = nullptr;
+    }
+
+    if (mediumLogTexture)
+    {
+        SDL_DestroyTexture(mediumLogTexture);
+        mediumLogTexture = nullptr;
+    }
+
+    if (bigLogTexture)
+    {
+        SDL_DestroyTexture(bigLogTexture);
+        bigLogTexture = nullptr;
+    }
+
+    SDL_Quit();
 }
